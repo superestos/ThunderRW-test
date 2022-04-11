@@ -74,6 +74,8 @@ struct HyperParameter {
     SamplingMethod sample_;
     int length_;
     std::pair<intT*, int> meta_path_;
+    bool is_pagerank;
+    bool is_ppr;
 };
 
 /**
@@ -104,6 +106,7 @@ struct ThreadParameter {
     int num_walkers_;
     uint64_t step_count_;
     F f_;
+    uint* value_;
 };
 
 extern HyperParameter g_para;

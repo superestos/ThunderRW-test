@@ -25,6 +25,10 @@ ADD_EXECUTABLE(genericwalk.out ${CREEPER_SOURCE_FILES} apps/genericwalk.cpp)
 TARGET_LINK_LIBRARIES(genericwalk.out graph log io)
 TARGET_COMPILE_DEFINITIONS(genericwalk.out PRIVATE SFMT_MEXP=19937 HAVE_SSE2=1)
 
+ADD_EXECUTABLE(pagerank.out ${CREEPER_SOURCE_FILES} apps/pagerank.cpp)
+TARGET_LINK_LIBRARIES(pagerank.out graph log io)
+TARGET_COMPILE_DEFINITIONS(pagerank.out PRIVATE SFMT_MEXP=19937 HAVE_SSE2=1)
+
 ADD_EXECUTABLE(its_preprocess.out its_preprocess.cpp)
 TARGET_LINK_LIBRARIES(its_preprocess.out graph log io)
 

@@ -7,7 +7,7 @@
 
 #include "config/type_config.h"
 struct WalkerMeta {
-    int id_;
+    uint id_;
     int source_;
     int current_;
     int length_;

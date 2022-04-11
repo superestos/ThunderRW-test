@@ -34,7 +34,7 @@ public:
     /**
      * The meta information.
      */
-    intT num_vertices_;
+    int64_t num_vertices_;
     int64_t num_edges_;
     intT max_degree_;
     intT node_with_max_degree_;
@@ -149,7 +149,7 @@ public:
         return num_partitions_;
     }
 
-    inline intT num_vertices() const {
+    inline int64_t num_vertices() const {
         return num_vertices_;
     }
 

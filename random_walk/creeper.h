@@ -296,6 +296,91 @@ void dynamic_gather(Graph *graph, BufferSlot *ring, F &f, HyperParameter &para, 
 }
 
 template<class F>
+void update_pagerank(Graph *graph, BufferSlot *ring, int &num_completed_walkers, int &current_id, int num_walkers,
+            WalkerMeta *walkers, F &f, uint64_t &step_count, bool is_pagerank, uint *value) {
+    for (int i = 0; i < RING_SIZE; ++i) {
+        BufferSlot& slot = ring[i];
+        //value[slot.w_.current_]++;
+        __sync_fetch_and_add(value + slot.w_.current_, 1);
+    }
+    for (int i = 0; i < RING_SIZE; ++i) {
+        BufferSlot& slot = ring[i];
+        if (!slot.empty_) {
+            // Update the status of the walker.
+            step_count += 1;
+            //value[slot.w_.current_]++;
+            
+            if (f.update(slot.w_, slot.prev_, slot.w_.current_, 0)) {
+                // If the walker completes, then set the slot as empty.
+                slot.empty_ = true;
+                num_completed_walkers += 1;
+#ifdef LOG_SEQUENCE
+                if (slot.seq_ != nullptr) {
+                    walkers[slot.local_id_].seq_ = slot.seq_;
+                    walkers[slot.local_id_].length_ = slot.w_.length_;
+                    slot.seq_ = slot.seq_ + slot.w_.length_;
+
+                }
+#endif
+            }
+        }
+
+        // If the slot is empty, then add a new walker to the ring buffer.
+        if (slot.empty_) {
+            if (current_id < num_walkers) {
+                slot.empty_ = false;
+                slot.local_id_ = current_id;
+                slot.w_ = walkers[current_id++];
+                slot.w_.seq_ = slot.seq_;
+
+                if (slot.seq_ != nullptr)
+                    slot.seq_[0] = slot.w_.source_;
+            }
+        }
+    }
+}
+
+template<class F>
+void update_ppr(Graph *graph, BufferSlot *ring, int &num_completed_walkers, int &current_id, int num_walkers,
+            WalkerMeta *walkers, F &f, uint64_t &step_count, bool is_ppr, uint *value) {
+    for (int i = 0; i < RING_SIZE; ++i) {
+        BufferSlot& slot = ring[i];
+        if (!slot.empty_) {
+            // Update the status of the walker.
+            step_count += 1;
+            if (f.update(slot.w_, slot.prev_, slot.w_.current_, 0)) {
+                // If the walker completes, then set the slot as empty.
+                slot.empty_ = true;
+                //value[slot.w_.current_]++;
+                __sync_fetch_and_add(value + slot.w_.current_, 1);
+                num_completed_walkers += 1;
+#ifdef LOG_SEQUENCE
+                if (slot.seq_ != nullptr) {
+                    walkers[slot.local_id_].seq_ = slot.seq_;
+                    walkers[slot.local_id_].length_ = slot.w_.length_;
+                    slot.seq_ = slot.seq_ + slot.w_.length_;
+
+                }
+#endif
+            }
+        }
+
+        // If the slot is empty, then add a new walker to the ring buffer.
+        if (slot.empty_) {
+            if (current_id < num_walkers) {
+                slot.empty_ = false;
+                slot.local_id_ = current_id;
+                slot.w_ = walkers[current_id++];
+                slot.w_.seq_ = slot.seq_;
+
+                if (slot.seq_ != nullptr)
+                    slot.seq_[0] = slot.w_.source_;
+            }
+        }
+    }
+}
+
+template<class F>
 void update(Graph *graph, BufferSlot *ring, int &num_completed_walkers, int &current_id, int num_walkers,
             WalkerMeta *walkers, F &f, uint64_t &step_count) {
     for (int i = 0; i < RING_SIZE; ++i) {
@@ -344,6 +429,10 @@ template<class F> void *uniform_compute(void *ptr) {
     int next = 0;
     int num_completed_walkers = 0;
     HyperParameter para = g_para;
+    bool is_pagerank = g_para.is_pagerank;
+    //bool is_fixed_pr = g_para.is_fixed_pr;
+    bool is_ppr = g_para.is_ppr;
+    uint *value = p->value_;
 
     sfmt_t sfmt;
     BufferSlot r[RING_SIZE];
@@ -389,13 +478,20 @@ template<class F> void *uniform_compute(void *ptr) {
 #ifdef TEST_AMAC
         uniform_amac_move(g, r, frames, &sfmt, para.length_);
 #else
-        uniform_interleaving_move(g, r, &sfmt, para.length_);
+        if (is_pagerank)
+            uniform_interleaving_move_pagerank(g, r, &sfmt, para.length_, f);
+        else
+            uniform_interleaving_move(g, r, &sfmt, para.length_);
 #endif
 #else
         uniform_move(g, r, &sfmt, para.length_);
 #endif
-
-        update(g, r, num_completed_walkers, next, num_walkers, q, f, step_count);
+        if (is_pagerank)
+            update_pagerank(g, r, num_completed_walkers, next, num_walkers, q, f, step_count, is_pagerank, value);
+        else if(is_ppr)
+            update_ppr(g, r, num_completed_walkers, next, num_walkers, q, f, step_count, is_ppr, value);
+        else
+            update(g, r, num_completed_walkers, next, num_walkers, q, f, step_count);
     }
 
     p->step_count_ = step_count;
@@ -409,10 +505,10 @@ template<class F> void *uniform_compute(void *ptr) {
 #endif
 
     double walking_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count() / 1000000000.0;
-    log_info("Thread %d Walking time (seconds): %.6lf", p->id_, walking_time);
-    log_info("Thread %d Num of completed walkers: %d", p->id_, num_completed_walkers);
-    log_info("Thread %d Num of steps: %zu", p->id_, step_count);
-    log_info("Thread %d Throughput (steps per second): %.2lf", p->id_, step_count / walking_time);
+    //log_info("Thread %d Walking time (seconds): %.6lf", p->id_, walking_time);
+    //log_info("Thread %d Num of completed walkers: %d", p->id_, num_completed_walkers);
+    //log_info("Thread %d Num of steps: %zu", p->id_, step_count);
+    //log_info("Thread %d Throughput (steps per second): %.2lf", p->id_, step_count / walking_time);
 
     return nullptr;
 }
@@ -532,10 +628,10 @@ template<class F> void *static_compute(void *ptr) {
 #endif
 
     double walking_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count() / 1000000000.0;
-    log_info("Thread %d Walking time (seconds): %.6lf", p->id_, walking_time);
-    log_info("Thread %d Num of completed walkers: %d", p->id_, num_completed_walkers);
-    log_info("Thread %d Num of steps: %zu", p->id_, step_count);
-    log_info("Thread %d Throughput (steps per second): %.2lf", p->id_, step_count / walking_time);
+    // log_info("Thread %d Walking time (seconds): %.6lf", p->id_, walking_time);
+    // log_info("Thread %d Num of completed walkers: %d", p->id_, num_completed_walkers);
+    // log_info("Thread %d Num of steps: %zu", p->id_, step_count);
+    // log_info("Thread %d Throughput (steps per second): %.2lf", p->id_, step_count / walking_time);
 
     return nullptr;
 }
@@ -710,6 +806,15 @@ template<class F> void compute(Graph& graph, std::vector<WalkerMeta>& walkers, F
     AliasSlot** alias_slot_buffer = nullptr;
     intT*** seq_buffer = nullptr;
 
+    uint* value = nullptr;
+    if (g_para.is_pagerank|g_para.is_ppr){
+        value = new uint[graph.num_vertices_];  //only for pagerank
+        for (int i=0; i < graph.num_vertices_ ; ++i){
+            value[i] = 0;
+        }
+        //log_info("value size: %d",sizeof(value))
+    } 
+
     if (g_para.execution_ == Dynamic) {
         weight_buffer = new double*[num_threads];
 
@@ -727,10 +832,12 @@ template<class F> void compute(Graph& graph, std::vector<WalkerMeta>& walkers, F
     }
 
     std::pair<WalkerMeta*, int> tasks[num_threads];
-    int length = walkers.size() / num_threads;
+    uint64_t length = walkers.size() / num_threads;
+    //log_info("Total walker num: %d", walkers.size());
     for (int i = 0; i < num_threads; ++i) {
         tasks[i].first = walkers.data() + i * length;
         tasks[i].second = i == (num_threads - 1) ? walkers.size() - i * length : length;
+        //log_info("thread%d walker num: %d", i, tasks[i].second);
     }
 
     /**
@@ -770,7 +877,7 @@ template<class F> void compute(Graph& graph, std::vector<WalkerMeta>& walkers, F
     for (int i = 0; i < num_threads; ++i) {
         parameters[i] = {i, &graph, weight_buffer == nullptr ? nullptr : weight_buffer[i],
                          seq_buffer == nullptr ? nullptr : seq_buffer[i], alias_slot_buffer == nullptr ? nullptr : alias_slot_buffer[i],
-                         tasks[i].first, tasks[i].second, 0, f};
+                         tasks[i].first, tasks[i].second, 0, f, value};
 
         // set thread affinity.
         CPU_ZERO(&cpus);

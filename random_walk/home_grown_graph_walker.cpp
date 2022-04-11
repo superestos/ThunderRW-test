@@ -208,26 +208,31 @@ void static_execute(Graph& graph, std::vector<intT>& sources) {
             local_walks += 1;
 
             bool flag;
+            bool is_stop=false;   //random select one vertex as next step, only for pagerank
             do {
                 if (w.length_ < para.length) {
                     seq[w.length_ - 1] = w.current_;
                 }
-
-                switch (para.sampling_method) {
-                    case UniformSampling:
-                        uniform_move(graph, w, &sfmt);
-                        break;
-                    case InverseTransformationSampling:
-                        its_move(graph, w, &sfmt, graph.edge_weight_prefix_sum_ + graph.offset_[w.current_]);
-                        break;
-                    case AliasSampling:
-                        alias_move(graph, w, &sfmt, graph.edge_weight_alias_table_ + graph.offset_[w.current_]);
-                        break;
-                    case RejectionSampling:
-                        rj_move(graph, w, &sfmt, graph.edge_weight_ + graph.offset_[w.current_], graph.edge_weight_rejection_max_[w.current_]);
-                        break;
+                if (is_stop){
+                    is_stop = false;
+                    w.current_ = sfmt_genrand_uint32(&sfmt)%graph.num_vertices_;
+                    //continue;
+                } else{
+                    switch (para.sampling_method) {
+                        case UniformSampling:
+                            uniform_move(graph, w, &sfmt);
+                            break;
+                        case InverseTransformationSampling:
+                            its_move(graph, w, &sfmt, graph.edge_weight_prefix_sum_ + graph.offset_[w.current_]);
+                            break;
+                        case AliasSampling:
+                            alias_move(graph, w, &sfmt, graph.edge_weight_alias_table_ + graph.offset_[w.current_]);
+                            break;
+                        case RejectionSampling:
+                            rj_move(graph, w, &sfmt, graph.edge_weight_ + graph.offset_[w.current_], graph.edge_weight_rejection_max_[w.current_]);
+                            break;
+                    }
                 }
-
                 w.length_ += 1;
 
                 local_step += 1;
@@ -239,7 +244,8 @@ void static_execute(Graph& graph, std::vector<intT>& sources) {
                         flag = w.length_ < para.length;
                         break;
                     case PPR:
-                        flag = sfmt_genrand_real2(&sfmt) >= para.stop_probability;
+                        flag = w.length_ < para.length;
+                        is_stop = sfmt_genrand_real2(&sfmt) < para.stop_probability;
                         break;
                 }
             } while (flag);
@@ -459,7 +465,7 @@ void parse_parameter(InputParser& cmd_parser, Graph& graph) {
     Application application = DeepWalk;
 
     // PPR parameter.
-    double stop_probability = 0.2;
+    double stop_probability = 0.15;
 
     // DeepWalk and Node2Vec parameters.
     int length = 80;

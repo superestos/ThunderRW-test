@@ -406,7 +406,7 @@ void parse_parameter(InputParser& cmd_parser, Graph& graph) {
     Application application = DeepWalk;
 
     // PPR parameter.
-    double stop_probability = 0.2;
+    double stop_probability = 0.15;
 
     // DeepWalk and Node2Vec parameters.
     int length = 80;

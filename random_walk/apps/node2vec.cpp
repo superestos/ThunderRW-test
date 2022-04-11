@@ -44,6 +44,10 @@ struct Node2Vec {
     inline double max_weight(WalkerMeta& w) {
         return max_;
     }
+
+    inline bool is_stop(WalkerMeta& w, intT begin, intT end, int64_t eid){
+        return false;
+    }
 };
 
 void execute(Graph &graph, InputParser &cmd_parser) {

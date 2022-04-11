@@ -44,6 +44,58 @@ void uniform_interleaving_move(Graph *graph, BufferSlot *ring, sfmt_t *sfmt, int
     }
 }
 
+
+template<class F> 
+void uniform_interleaving_move_pagerank(Graph *graph, BufferSlot *ring, sfmt_t *sfmt, int length, F &f) {
+    
+    bool stop[RING_SIZE];
+    memset(stop, 0, sizeof(stop));  //stop[i]=true means ring[i].w_ will return to source vertex
+
+    // Stage 1: generate random number & prefetch the degree.
+    for (int i = 0; i < RING_SIZE; ++i) {
+        BufferSlot& slot = ring[i];
+        if (!slot.empty_) {
+            slot.prev_ = slot.w_.current_;
+            if (f.is_stop(slot.w_, slot.prev_, slot.w_.current_, 0)){
+                stop[i] = true;
+                continue;
+            }
+            slot.r_ = sfmt_genrand_uint32(sfmt);
+            _mm_prefetch((void*)(graph->offset_pair_ + slot.w_.current_), PREFETCH_HINT);
+        }
+    }
+
+    // Stage 2: generate the position & prefetch the neighbor.
+    for (int i = 0; i < RING_SIZE; ++i) {
+        BufferSlot& slot = ring[i];
+        if (!slot.empty_) {
+            if(stop[i]){
+                continue;
+            }
+            slot.offset_ = graph->offset_pair_[slot.w_.current_];
+            slot.r_ = slot.offset_.first + (slot.r_ % (slot.offset_.second - slot.offset_.first));
+            _mm_prefetch((void*)(graph->adj_ + slot.r_), PREFETCH_HINT);
+        }
+    }
+
+    // Stage 3: update the walker.
+    for (int i = 0; i < RING_SIZE; ++i) {
+        BufferSlot& slot = ring[i];
+        if (!slot.empty_) {
+            if(stop[i]){
+                slot.w_.current_ = slot.w_.source_;
+            } else{
+                slot.w_.current_ = graph->adj_[slot.r_];
+            }
+            if (slot.w_.length_ < length) {
+                slot.seq_[slot.w_.length_] = slot.w_.current_;
+            }
+
+            slot.w_.length_ += 1;
+        }
+    }
+}
+
 void uniform_move(Graph *graph, BufferSlot *ring, sfmt_t *sfmt, int length) {
     for (int i = 0; i < RING_SIZE; ++i) {
         BufferSlot& slot = ring[i];
